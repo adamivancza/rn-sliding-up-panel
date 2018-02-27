@@ -1,11 +1,12 @@
-import React from 'react'
+import React, { Component } from 'react'
 import PropTypes from 'prop-types'
 import {
   View,
   TouchableWithoutFeedback,
   Animated,
   PanResponder,
-  Platform
+  Platform,
+  SafeAreaView
 } from 'react-native'
 
 import FlickAnimation from './libs/FlickAnimation'
@@ -14,13 +15,13 @@ import styles from './libs/styles'
 
 const deprecated = (condition, message) => condition && console.warn(message)
 
-class SlidingUpPanel extends React.Component {
+class SlidingUpPanel extends Component {
   static propTypes = {
-    visible: PropTypes.bool.isRequired,
     draggableRange: PropTypes.shape({
       top: PropTypes.number.isRequired,
       bottom: PropTypes.number.isRequired
     }),
+    minimisedHeight: PropTypes.number.isRequired,
     height: PropTypes.number,
     onDrag: PropTypes.func,
     onDragStart: PropTypes.func,
@@ -32,16 +33,16 @@ class SlidingUpPanel extends React.Component {
   }
 
   static defaultProps = {
-    visible: false,
     height: visibleHeight,
+    minimisedHeight: 200,
     draggableRange: {top: visibleHeight, bottom: 0},
     onDrag: () => {},
     onDragStart: () => {},
     onDragEnd: () => {},
     onRequestClose: () => {},
     allowMomentum: true,
-    allowDragging: true,
-    showBackdrop: true
+    allowDragging: false,
+    showBackdrop: false
   }
 
   constructor(props) {
@@ -53,6 +54,10 @@ class SlidingUpPanel extends React.Component {
     this._isInsideDraggableRange = this._isInsideDraggableRange.bind(this)
 
     this.transitionTo = this.transitionTo.bind(this)
+
+    this.state = {
+      minimised: false
+    };
   }
 
   componentWillMount() {
@@ -82,13 +87,10 @@ class SlidingUpPanel extends React.Component {
     })
 
     this._translateYAnimation.addListener(this._onDrag)
+    this.transitionTo(-this.props.draggableRange.top, () => {}, 0);
   }
 
   componentWillReceiveProps(nextProps) {
-    if (nextProps.visible && !this.props.visible) {
-      this.transitionTo(-this.props.draggableRange.top)
-    }
-
     if (
       nextProps.draggableRange.top !== this.props.draggableRange.top ||
       nextProps.draggableRange.bottom !== this.props.draggableRange.bottom
@@ -100,7 +102,7 @@ class SlidingUpPanel extends React.Component {
 
   componentDidUpdate() {
     const {bottom} = this.props.draggableRange
-    if (this._animatedValueY !== -bottom && !this.props.visible) {
+    if (this._animatedValueY !== -bottom && this.state.minimised) {
       this._translateYAnimation.setValue(-bottom)
     }
   }
@@ -183,10 +185,18 @@ class SlidingUpPanel extends React.Component {
     }
   }
 
-  transitionTo(value, onAnimationEnd = () => {}) {
+  toMinimised() {
+    this.transitionTo(this.props.minimisedHeight, () => this.setState({ minimised: true }));
+  }
+
+  toFull() {
+    this.setState({ minimised: false }, () => this.transitionTo(this.props.draggableRange.top));
+  }
+
+  transitionTo(value, onAnimationEnd = () => {}, duration = 260) {
     const animationConfig = {
       toValue: -Math.abs(value),
-      duration: 260,
+      duration,
       // eslint-disable-next-line no-undefined, max-len
       delay: Platform.OS === 'android' ? 166.67 : undefined // to make it looks smooth on android
     }
@@ -207,9 +217,8 @@ class SlidingUpPanel extends React.Component {
 
   _renderBackdrop() {
     if (!this.props.showBackdrop) {
-      return null
+      return <View style={{ flex: 1 }} pointerEvents="none"/>
     }
-
     const {top, bottom} = this.props.draggableRange
 
     const backdropOpacity = this._translateYAnimation.interpolate({
@@ -228,11 +237,11 @@ class SlidingUpPanel extends React.Component {
   }
 
   render() {
-    if (!this.props.visible) {
-      return null
+    let {top, bottom} = this.props.draggableRange;
+    if (this.state.minimised) {
+      bottom = this.props.minimisedHeight;
     }
 
-    const {top, bottom} = this.props.draggableRange
     const height = this.props.height
 
     const translateY = this._translateYAnimation.interpolate({
@@ -250,15 +259,22 @@ class SlidingUpPanel extends React.Component {
       {height, top: visibleHeight, bottom: 0}
     ]
 
+    const showFullContent = !this.state.minimised || (this.state.minimised && !this.props.minimisedContent);
+
     return (
-      <View style={styles.container} pointerEvents='box-none'>
+      <SafeAreaView style={styles.container} pointerEvents='box-none'>
         {this._renderBackdrop()}
-        <Animated.View
+        {showFullContent && <Animated.View
           {...this._panResponder.panHandlers}
           style={animatedContainerStyles}>
           {this.props.children}
-        </Animated.View>
-      </View>
+        </Animated.View>}
+        {!showFullContent && <Animated.View
+          {...this._panResponder.panHandlers}
+          style={animatedContainerStyles}>
+          {this.props.minimisedContent()}
+        </Animated.View>}
+      </SafeAreaView>
     )
   }
 }
